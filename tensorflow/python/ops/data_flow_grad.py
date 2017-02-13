@@ -24,6 +24,7 @@ from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import data_flow_ops
+from tensorflow.python.ops import functional_ops
 from tensorflow.python.ops import math_ops
 
 
@@ -54,12 +55,39 @@ def _DynamicStitchGrads(op, grad):
   def AsInt32(x):
     return (x if op.inputs[0].dtype == dtypes.int32 else
             math_ops.cast(x, dtypes.int32))
-  inputs = [AsInt32(op.inputs[i]) for i in xrange(num_values)]
+  idxs = [AsInt32(array_ops.reshape(op.inputs[i], (-1,)))
+          for i in xrange(num_values)]
   if isinstance(grad, ops.IndexedSlices):
     output_shape = array_ops.shape(op.outputs[0])
     output_rows = output_shape[0]
     grad = math_ops.unsorted_segment_sum(grad.values, grad.indices, output_rows)
-  values_grad = [array_ops.gather(grad, inp) for inp in inputs]
+
+  values_grad = []
+  later_idxs = idxs[-1]
+  zeros = array_ops.zeros_like(grad)
+  for i in range(num_values - 1, -1, -1):
+    if i == num_values - 1:
+      v_grad = array_ops.gather(grad, idxs[i])
+    else:
+      def is_unique(val):
+        return math_ops.reduce_all(math_ops.not_equal(val, later_idxs))
+      unique = functional_ops.map_fn(is_unique, idxs[i], dtype=dtypes.bool)
+      diff_indices = array_ops.where(unique)[:, 0]
+      diff_values = array_ops.gather(idxs[i], diff_indices)
+
+      later_idxs = array_ops.concat((diff_values, later_idxs), axis=0)
+
+      n_indices = array_ops.shape(idxs[i])[0]
+      v_grad = data_flow_ops.dynamic_stitch(
+        [math_ops.range(n_indices), math_ops.cast(diff_indices, dtypes.int32)],
+        [zeros[:n_indices], array_ops.gather(grad, diff_values)])
+
+    v_grad = array_ops.reshape(
+      v_grad, array_ops.concat((array_ops.shape(op.inputs[i]),
+                                array_ops.shape(v_grad)[1:]), 0))
+
+    values_grad = [v_grad] + values_grad
+
   return indices_grad + values_grad
 
 
