@@ -63,30 +63,20 @@ def _DynamicStitchGrads(op, grad):
     grad = math_ops.unsorted_segment_sum(grad.values, grad.indices, output_rows)
 
   values_grad = []
-  later_idxs = idxs[-1]
   zeros = array_ops.zeros_like(grad)
-  for i in range(num_values - 1, -1, -1):
+  idx_zeros = [zeros[:array_ops.shape(x)[0]] for x in idxs]
+  grad_range = math_ops.range(array_ops.shape(grad)[0])
+  for i in range(num_values):
     if i == num_values - 1:
-      v_grad = array_ops.gather(grad, idxs[i])
+      v_grad = grad
     else:
-      def is_unique(val):
-        return math_ops.reduce_all(math_ops.not_equal(val, later_idxs))
-      unique = functional_ops.map_fn(is_unique, idxs[i], dtype=dtypes.bool)
-      diff_indices = array_ops.where(unique)[:, 0]
-      diff_values = array_ops.gather(idxs[i], diff_indices)
-
-      later_idxs = array_ops.concat((diff_values, later_idxs), axis=0)
-
-      n_indices = array_ops.shape(idxs[i])[0]
       v_grad = data_flow_ops.dynamic_stitch(
-        [math_ops.range(n_indices), math_ops.cast(diff_indices, dtypes.int32)],
-        [zeros[:n_indices], array_ops.gather(grad, diff_values)])
-
+        [grad_range] + idxs[i+1:], [grad] + idx_zeros[i+1:])
+    v_grad = array_ops.gather(v_grad, idxs[i])
     v_grad = array_ops.reshape(
       v_grad, array_ops.concat((array_ops.shape(op.inputs[i]),
                                 array_ops.shape(v_grad)[1:]), 0))
-
-    values_grad = [v_grad] + values_grad
+    values_grad += [v_grad]
 
   return indices_grad + values_grad
 
