@@ -62,17 +62,17 @@ def _DynamicStitchGrads(op, grad):
     output_rows = output_shape[0]
     grad = math_ops.unsorted_segment_sum(grad.values, grad.indices, output_rows)
 
+  constants = [array_ops.ones(array_ops.shape(x)[:1], dtype=dtypes.int32) * i
+               for i, x in enumerate(idxs)]
+  source = data_flow_ops.dynamic_stitch(idxs, constants)
+  source = array_ops.reshape(
+    source, array_ops.concat((array_ops.shape(source)[:1],
+                              array_ops.ones((array_ops.rank(grad) - 1,),
+                                             dtype=dtypes.int32)), axis=0))
   values_grad = []
-  zeros = array_ops.zeros_like(grad)
-  idx_zeros = [zeros[:array_ops.shape(x)[0]] for x in idxs]
-  grad_range = math_ops.range(array_ops.shape(grad)[0])
-  for i in range(num_values):
-    if i == num_values - 1:
-      v_grad = grad
-    else:
-      v_grad = data_flow_ops.dynamic_stitch(
-        [grad_range] + idxs[i+1:], [grad] + idx_zeros[i+1:])
-    v_grad = array_ops.gather(v_grad, idxs[i])
+  for i, x in enumerate(idxs):
+    mask = math_ops.cast(math_ops.equal(source, i), grad.dtype)
+    v_grad = array_ops.gather(math_ops.multiply(grad, mask), x)
     v_grad = array_ops.reshape(
       v_grad, array_ops.concat((array_ops.shape(op.inputs[i]),
                                 array_ops.shape(v_grad)[1:]), 0))
