@@ -17,11 +17,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensorflow.python.framework import constant_op
+from tensorflow.core.protobuf import config_pb2
+from tensorflow.python.client import session
+from tensorflow.python.framework import constant_op, ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.platform import test
+from tensorflow.python.profiler import tfprof_logger
 
 
 class TFProfLoggerTest(test.TestCase):
@@ -74,6 +77,28 @@ class TFProfLoggerTest(test.TestCase):
     tfprof_logger._fill_missing_graph_shape(graph2, run_metadata)
     self.assertEquals('<unknown>', str(y2.get_shape()))
   """
+
+  def testFillMissingShape(self):
+    a, b, y = self._BuildSmallPlaceholderlModel()
+    run_options = config_pb2.RunOptions(
+      trace_level=config_pb2.RunOptions.FULL_TRACE)
+    run_metadata = config_pb2.RunMetadata()
+    sess = session.Session()
+    sess.run(y,
+             options=run_options,
+             run_metadata=run_metadata,
+             feed_dict={a: [[1, 2], [2, 3]],
+                        b: [[1, 2], [2, 3]]})
+
+    assert a.get_shape().as_list() == [None, None]
+    assert b.get_shape().as_list() == [None, None]
+    assert y.get_shape().as_list() == [None, None]
+
+    tfprof_logger._fill_missing_graph_shape(
+      ops.get_default_graph(), run_metadata)
+    assert a.get_shape().as_list() == [2, 2]
+    assert b.get_shape().as_list() == [2, 2]
+    assert y.get_shape().as_list() == [2, 2]
 
 
 if __name__ == '__main__':

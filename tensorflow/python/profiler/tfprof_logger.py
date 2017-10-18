@@ -40,8 +40,14 @@ def _fill_missing_graph_shape(graph, run_meta):
     for node_stat in dev_stat.node_stats:
       if not node_stat.output:
         continue
+
+      if node_stat.node_name.startswith("_arg"):
+        node_name = "_".join(node_stat.node_name.split("_")[2:-2])
+      else:
+        node_name = node_stat.node_name
+
       try:
-        op = graph.get_operation_by_name(node_stat.node_name)
+        op = graph.get_operation_by_name(node_name)
       except KeyError as e:
         # Graph doesn't contains the node_stat, usually RecvTensor.
         continue
